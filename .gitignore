@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Next.js build output (auto-generated, can be large)
+.next/
+
+# Auto-generated Next.js type declarations
+next-env.d.ts
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Environment variable files (may contain secrets)
+.env*.local
+
+# Test coverage reports
+coverage/
+
+# macOS system files
+.DS_Store
+
+# Log files
+*.log
+npm-debug.log*
+
+AGENTS.md
+CLAUDE.md
+
+# Vercel deployment
+.vercel
+
+# Full env file (not just .local variants) — just in case
+.env
+
+# Build/dist output if you ever run a static export
+out/
+build/
+
+# Editor folders (optional but common)
+.vscode/
+.idea/
