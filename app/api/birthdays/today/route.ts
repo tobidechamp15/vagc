@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import Member from "@/models/Member";
-import { getAuthUser } from "@/lib/auth";
+import { requireApprovedUser, authFailureResponse } from "@/lib/auth";
 
 // GET /api/birthdays/today -> members whose birthday (month/day) is today
 export async function GET(req: NextRequest) {
-  if (!getAuthUser(req)) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  const auth = await requireApprovedUser(req);
+  if (!auth.ok) {
+    return authFailureResponse(auth);
   }
   try {
     await connectDB();
@@ -22,6 +23,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: members });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: err.message },
+      { status: 500 },
+    );
   }
 }

@@ -3,9 +3,12 @@ import bcrypt from "bcryptjs";
 import { connectDB } from "@/lib/mongodb";
 import User from "@/models/User";
 import { signToken, isSuperAdminEmail } from "@/lib/auth";
+import { setSessionCookie } from "@/lib/session";
 import { logActivity, getRequestMeta } from "@/lib/activity";
 
-// POST /api/auth/login  { email, password }
+// POST /api/auth/web-login  { email, password }
+// Used by the Next.js dashboard. On success it sets an httpOnly session cookie
+// (the mobile app keeps using the Bearer-token /api/auth/login endpoint).
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
@@ -34,15 +37,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Rejected accounts cannot sign in — except the super-admin account.
-    if (user.status === "rejected" && !isSuperAdminEmail(user.email)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Your account was rejected. Please contact the administrator.",
-        },
-        { status: 403 },
-      );
+    // The web dashboard is for approved admins only.
+    // Legacy accounts (created before approval existed) have no status —
+    // treat them as approved so existing admins aren't locked out.
+    const status: "pending" | "approved" | "rejected" =
+      user.status || "approved";
+    // The super-admin account is exempt from status restrictions.
+    if (status !== "approved" && !isSuperAdminEmail(user.email)) {
+      const msg =
+        status === "rejected"
+          ? "Your account was rejected. Please contact the administrator."
+          : "Your account is pending approval.";
+      return NextResponse.json({ success: false, error: msg }, { status: 403 });
     }
 
     const token = signToken({
@@ -51,10 +57,9 @@ export async function POST(req: NextRequest) {
       role: user.role,
       name: user.fullName,
     });
+    setSessionCookie(token);
 
-    // Audit: record every successful login (mobile and web) with a timestamp.
-    // Pending accounts are allowed to log in so the app can show the
-    // "pending review" screen, but they cannot access any data until approved.
+    // Audit: record the dashboard login too (same actor logging as mobile).
     await logActivity({
       actor: {
         userId: user._id.toString(),
@@ -69,13 +74,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        token,
         user: {
           id: user._id,
           fullName: user.fullName,
           email: user.email,
           role: user.role,
-          status: user.status,
         },
       },
     });

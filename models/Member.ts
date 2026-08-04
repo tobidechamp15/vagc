@@ -12,6 +12,9 @@ export interface IMember {
   birthdaySent: boolean;
   birthdaySentDate?: Date | null;
   birthdaySentYear?: number | null; // which year we last sent for, so it resets annually
+  birthdayStatus: "pending" | "sent" | "failed"; // current-year birthday email status
+  birthdayStatusYear?: number | null; // the year birthdayStatus refers to (rolls over on Jan 1)
+  birthdayRetryCount?: number; // how many auto send attempts failed this year (cron retry cap)
 }
 
 const MemberSchema = new Schema<IMember>(
@@ -30,8 +33,15 @@ const MemberSchema = new Schema<IMember>(
     birthdaySent: { type: Boolean, default: false },
     birthdaySentDate: { type: Date, default: null },
     birthdaySentYear: { type: Number, default: null },
+    birthdayStatus: {
+      type: String,
+      enum: ["pending", "sent", "failed"],
+      default: "pending",
+    },
+    birthdayStatusYear: { type: Number, default: null },
+    birthdayRetryCount: { type: Number, default: 0 },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 MemberSchema.index({ fullName: "text", gmail: "text", phoneNumber: "text" });

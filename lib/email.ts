@@ -1,11 +1,19 @@
 import nodemailer from "nodemailer";
 
+// SMTP login for the Gmail account used to send app emails.
+// Prefers EMAIL_USER / EMAIL_PASS; falls back to the legacy GMAIL_USER / GMAIL_APP_PASSWORD names.
+export const EMAIL_USER = process.env.EMAIL_USER || process.env.GMAIL_USER;
+export const EMAIL_PASS =
+  process.env.EMAIL_PASS || process.env.GMAIL_APP_PASSWORD;
+
 export function getTransporter() {
   return nodemailer.createTransport({
-    service: "gmail",
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // Use TLS (STARTTLS)
     auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
+      user: EMAIL_USER,
+      pass: EMAIL_PASS,
     },
   });
 }
@@ -27,7 +35,7 @@ export async function sendBirthdayEmail(to: string, memberName: string) {
   const transporter = getTransporter();
   const churchName = process.env.CHURCH_NAME || "Our Church";
   return transporter.sendMail({
-    from: `"${churchName}" <${process.env.GMAIL_USER}>`,
+    from: `"${churchName}" <${EMAIL_USER}>`,
     to,
     subject: `Happy Birthday ${memberName}!`,
     html: birthdayEmailHtml(memberName),
