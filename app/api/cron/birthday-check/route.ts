@@ -9,6 +9,51 @@ import { sendBirthdayEmail } from "@/lib/email";
 // 24 times a day and flood the BirthdayEmailLog with failures.
 const MAX_RETRIES = 5;
 
+// ── Cron deduplication lock ────────────────────────────────────────────
+// Vercel Cron guarantees single-delivery (one request per scheduled tick),
+// so this lock is a no-op in production. It exists for self-hosted /
+// multi-instance deployments where multiple cron triggers could fire
+// simultaneously. The lock auto-expires after 55 minutes (hourly cron
+// minus 5 min safety margin) so a crashed run never blocks the next tick.
+const LOCK_TTL_MS = 55 * 60 * 1000; // 55 minutes
+
+async function acquireCronLock(): Promise<boolean> {
+  try {
+    const db = (await connectDB()).connection.db!;
+    const now = new Date();
+    const result = await db.collection("cron_locks").findOneAndUpdate(
+      { name: "birthday-check" },
+      {
+        $set: { name: "birthday-check", acquiredAt: now },
+        $setOnInsert: { expiresAt: new Date(now.getTime() + LOCK_TTL_MS) },
+      },
+      { upsert: true, returnDocument: "after" },
+    );
+    // If a lock already exists and hasn't expired, this run is a duplicate.
+    if (!result) return false;
+    const expiresAt =
+      result.expiresAt instanceof Date
+        ? result.expiresAt
+        : new Date(result.expiresAt);
+    if (expiresAt > now) return false;
+    // Lock expired — update it and proceed.
+    await db.collection("cron_locks").updateOne(
+      { name: "birthday-check" },
+      {
+        $set: {
+          acquiredAt: now,
+          expiresAt: new Date(now.getTime() + LOCK_TTL_MS),
+        },
+      },
+    );
+    return true;
+  } catch {
+    // If the locks collection doesn't exist yet or there's a transient error,
+    // allow the cron to proceed — better to risk a duplicate than skip entirely.
+    return true;
+  }
+}
+
 // GET /api/cron/birthday-check
 // Runs HOURLY (see vercel.json) so that:
 //   - birthday emails go out as soon as possible on the member's birthday, and
@@ -16,6 +61,10 @@ const MAX_RETRIES = 5;
 // Idempotent: a member is only emailed once per year (guarded by birthdaySentYear)
 // and never before their birthday (month/day must be today or already passed).
 // Protect with CRON_SECRET so it can't be hit by anyone else.
+//
+// On Vercel: Cron Jobs deliver exactly one request per scheduled tick.
+// On self-hosted / Kubernetes: if multiple cron triggers fire simultaneously,
+// the acquireCronLock() guard ensures only one instance processes the batch.
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   if (
@@ -30,6 +79,18 @@ export async function GET(req: NextRequest) {
 
   try {
     await connectDB();
+
+    // ── Distributed lock: prevent duplicate runs in multi-instance deployments.
+    // On Vercel Cron this is a no-op (single delivery). On self-hosted / K8s,
+    // if two cron pods fire at the same time, only one acquires the lock.
+    const locked = await acquireCronLock();
+    if (!locked) {
+      return NextResponse.json({
+        success: true,
+        message: "Skipped — another instance is already processing this tick.",
+      });
+    }
+
     const now = new Date();
     const month = String(now.getMonth() + 1).padStart(2, "0");
     const day = String(now.getDate()).padStart(2, "0");

@@ -5,8 +5,9 @@ import { requireApprovedUser, authFailureResponse } from "@/lib/auth";
 import { logActivity, getRequestMeta } from "@/lib/activity";
 import { sortByUpcomingBirthday } from "@/lib/birthdaySort";
 
-// GET /api/members            -> list all members
-// GET /api/members?q=john     -> search members by name/email/phone
+// GET /api/members                       -> list members (paginated)
+// GET /api/members?q=john                -> search members by name/email/phone
+// GET /api/members?page=2&limit=8        -> paginate (page is 1-based, default limit 8)
 export async function GET(req: NextRequest) {
   const auth = await requireApprovedUser(req);
   if (!auth.ok) {
@@ -15,6 +16,18 @@ export async function GET(req: NextRequest) {
   try {
     await connectDB();
     const q = req.nextUrl.searchParams.get("q");
+
+    const page = Math.max(
+      1,
+      parseInt(req.nextUrl.searchParams.get("page") || "1", 10) || 1,
+    );
+    const limit = Math.min(
+      100,
+      Math.max(
+        1,
+        parseInt(req.nextUrl.searchParams.get("limit") || "8", 10) || 8,
+      ),
+    );
 
     const filter = q
       ? {
@@ -26,9 +39,28 @@ export async function GET(req: NextRequest) {
         }
       : {};
 
-    // Order members by their closest upcoming birthday (today's first).
-    const members = sortByUpcomingBirthday(await Member.find(filter).lean());
-    return NextResponse.json({ success: true, data: members });
+    const [total, all] = await Promise.all([
+      Member.countDocuments(filter),
+      Member.find(filter).lean(),
+    ]);
+
+    // Order members by their closest upcoming birthday (today's first), then
+    // slice out only the requested page so the client gets small batches.
+    const sorted = sortByUpcomingBirthday(all);
+    const start = (page - 1) * limit;
+    const data = sorted.slice(start, start + limit);
+
+    return NextResponse.json({
+      success: true,
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasMore: start + data.length < total,
+      },
+    });
   } catch (err: any) {
     return NextResponse.json(
       { success: false, error: err.message },
