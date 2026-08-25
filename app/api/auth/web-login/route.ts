@@ -5,12 +5,24 @@ import User from "@/models/User";
 import { signToken, isSuperAdminEmail } from "@/lib/auth";
 import { setSessionCookie } from "@/lib/session";
 import { logActivity, getRequestMeta } from "@/lib/activity";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rateLimit";
 
 // POST /api/auth/web-login  { email, password }
 // Used by the Next.js dashboard. On success it sets an httpOnly session cookie
 // (the mobile app keeps using the Bearer-token /api/auth/login endpoint).
 export async function POST(req: NextRequest) {
   try {
+    // DEV-30: public write — brute-force protection per IP (same as mobile login).
+    const rl = await checkRateLimit(req, {
+      key: "auth.web-login",
+      ...RATE_LIMITS.login,
+    });
+    if (!rl.ok) return rateLimitResponse(rl.retryAfterSeconds);
+
     await connectDB();
     const { email, password } = await req.json();
 

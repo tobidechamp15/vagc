@@ -7,7 +7,22 @@ export type ActivityAction =
   | "MEMBER_DELETE"
   | "NOTIFICATION_RESEND"
   | "ACCOUNT_APPROVE"
-  | "ACCOUNT_REJECT";
+  | "ACCOUNT_REJECT"
+  | "POST_CREATE"
+  | "POST_UPDATE"
+  | "POST_DELETE"
+  | "POST_RESTORE"
+  | "EVENT_CREATE"
+  | "EVENT_UPDATE"
+  | "EVENT_DELETE"
+  | "EVENT_RESTORE"
+  | "PRAYER_HIDE"
+  | "PRAYER_UNHIDE"
+  | "PRAYER_DELETE"
+  | "PRAYER_BLOCK_DEVICE"
+  | "PRAYER_UNBLOCK_DEVICE"
+  | "PRAYER_CLEAR_REPORTS"
+  | "SUPPORT_TICKET_UPDATE";
 
 export interface IActivityLog {
   _id?: string;
@@ -41,6 +56,21 @@ const ActivityLogSchema = new Schema<IActivityLog>(
         "NOTIFICATION_RESEND",
         "ACCOUNT_APPROVE",
         "ACCOUNT_REJECT",
+        "POST_CREATE",
+        "POST_UPDATE",
+        "POST_DELETE",
+        "POST_RESTORE",
+        "EVENT_CREATE",
+        "EVENT_UPDATE",
+        "EVENT_DELETE",
+        "EVENT_RESTORE",
+        "PRAYER_HIDE",
+        "PRAYER_UNHIDE",
+        "PRAYER_DELETE",
+        "PRAYER_BLOCK_DEVICE",
+        "PRAYER_UNBLOCK_DEVICE",
+        "PRAYER_CLEAR_REPORTS",
+        "SUPPORT_TICKET_UPDATE",
       ],
       required: true,
     },

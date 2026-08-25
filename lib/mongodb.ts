@@ -18,6 +18,32 @@ if (!MONGODB_URI) {
 // The environment variable lets you override for dedicated clusters (M10+).
 const DB_POOL_SIZE = parseInt(process.env.DB_POOL_SIZE || "5", 10);
 
+// ── Auto-indexing ──────────────────────────────────────────────────────────
+// Mongoose auto-creates every schema-declared index on connect when
+// `autoIndex` is true. That's convenient in development — a schema change
+// immediately builds its index with zero ceremony. In production it's a
+// footgun on serverless (Vercel):
+//
+//   • Any function instance can be the first to boot after a deploy, so index
+//     creation becomes a race instead of a controlled, single deploy step.
+//   • Creating a unique / TTL index opportunistically on a hot path can fail
+//     or lock the collection at the worst possible moment.
+//
+// So production defaults to `autoIndex: false`: indexes are built explicitly by
+// scripts/create-indexes.js as part of the deploy (see README → Deploy).
+// Local development keeps `autoIndex: true` so schema changes just work.
+//
+// Override the per-environment default with the AUTO_INDEX env var
+// ("true"/"1"/"false"/"0") when a given environment needs the opposite.
+const AUTO_INDEX_DEFAULT = process.env.NODE_ENV !== "production";
+
+function envBool(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value.trim() === "") return fallback;
+  return !/^(false|0|off|no)$/i.test(value.trim());
+}
+
+const AUTO_INDEX = envBool(process.env.AUTO_INDEX, AUTO_INDEX_DEFAULT);
+
 // Reuse the connection across hot reloads / serverless invocations.
 // Vercel keeps function instances warm (alive in memory) between requests,
 // so `global` caching avoids reconnecting on every invocation.
@@ -46,6 +72,9 @@ export async function connectDB() {
       // ── Timeouts tuned for serverless (Vercel has a 60 s max) ──────
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 5000,
+      // Off in production (indexes built explicitly by scripts/create-indexes.js
+      // at deploy time); on in development so schema changes just work.
+      autoIndex: AUTO_INDEX,
       socketTimeoutMS: 45000, // just under the 60 s function limit
       // ── Keep-alive to avoid idle disconnects on warm instances ──────
       heartbeatFrequencyMS: 10000,

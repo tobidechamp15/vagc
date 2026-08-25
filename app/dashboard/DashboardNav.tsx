@@ -5,8 +5,12 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/dashboard/activity", label: "Activity" },
+  { href: "/dashboard/posts", label: "Posts" },
+  { href: "/dashboard/events", label: "Events" },
   { href: "/dashboard/members", label: "Members" },
   { href: "/dashboard/users", label: "Users" },
+  { href: "/dashboard/prayer-requests", label: "Prayer Requests" },
+  { href: "/dashboard/support", label: "Support Inbox" },
 ];
 
 export default function DashboardNav() {

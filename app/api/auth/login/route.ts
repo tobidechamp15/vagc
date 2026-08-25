@@ -4,10 +4,22 @@ import { connectDB } from "@/lib/mongodb";
 import User from "@/models/User";
 import { signToken, isSuperAdminEmail } from "@/lib/auth";
 import { logActivity, getRequestMeta } from "@/lib/activity";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rateLimit";
 
 // POST /api/auth/login  { email, password }
 export async function POST(req: NextRequest) {
   try {
+    // DEV-30: public write — brute-force protection per IP.
+    const rl = await checkRateLimit(req, {
+      key: "auth.login",
+      ...RATE_LIMITS.login,
+    });
+    if (!rl.ok) return rateLimitResponse(rl.retryAfterSeconds);
+
     await connectDB();
     const { email, password } = await req.json();
 

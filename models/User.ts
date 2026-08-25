@@ -17,6 +17,18 @@ export interface INotificationPrefs {
   prayerRequests: boolean;
 }
 
+// ── Expo push token (registered per device, DEV-26) ─────────────────────────
+// Each signed-in staff/admin account can have several registered devices
+// (phone, tablet, ...). Tokens are stored per-device so logout / opt-out can
+// remove just one device instead of nuking the whole account.
+export interface IPushToken {
+  token: string; // e.g. "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]"
+  platform?: string; // "ios" | "android" | "web"
+  deviceId?: string; // stable anonymous device id (DEV-20)
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 // ── User / Profile ───────────────────────────────────────────────────────────
 export interface IUser {
   _id?: string;
@@ -51,6 +63,9 @@ export interface IUser {
   // Notification preferences (embedded)
   notificationPrefs?: INotificationPrefs;
 
+  // Expo push tokens for this account's registered devices (DEV-26)
+  pushTokens?: IPushToken[];
+
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -69,6 +84,22 @@ const NotificationPrefsSchema = new Schema<INotificationPrefs>(
     givingReminders: { type: Boolean, default: false },
     newMemberWelcomes: { type: Boolean, default: true },
     prayerRequests: { type: Boolean, default: true },
+  },
+  { _id: false },
+);
+
+// ── Push token sub-document (DEV-26) ─────────────────────────────────────────
+// Note: no `unique` index on `token` — it lives inside an embedded array, so a
+// global unique index would risk MongoServerError on legit edge cases (the same
+// device briefly re-registering after a logout). Dedupe is handled app-level in
+// the push-token route (filter-out-then-push).
+const PushTokenSchema = new Schema<IPushToken>(
+  {
+    token: { type: String, required: true },
+    platform: { type: String },
+    deviceId: { type: String },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
   },
   { _id: false },
 );
@@ -116,6 +147,8 @@ const UserSchema = new Schema<IUser>(
 
     // Notifications
     notificationPrefs: { type: NotificationPrefsSchema, default: () => ({}) },
+    // Expo push tokens (DEV-26)
+    pushTokens: { type: [PushTokenSchema], default: [] },
   },
   { timestamps: true },
 );

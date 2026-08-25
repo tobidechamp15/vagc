@@ -4,12 +4,24 @@ import { connectDB } from "@/lib/mongodb";
 import User from "@/models/User";
 import { isSuperAdminEmail } from "@/lib/auth";
 import { getTransporter, EMAIL_USER } from "@/lib/email";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rateLimit";
 
 // POST /api/auth/forgot-password  { email }
 // Always responds success (so we don't leak which emails are registered),
 // but only actually emails a reset code if the account exists.
 export async function POST(req: NextRequest) {
   try {
+    // DEV-30: public write — stop reset-code email spam per IP.
+    const rl = await checkRateLimit(req, {
+      key: "auth.forgot-password",
+      ...RATE_LIMITS.forgotPassword,
+    });
+    if (!rl.ok) return rateLimitResponse(rl.retryAfterSeconds);
+
     await connectDB();
     const { email } = await req.json();
     if (!email) {

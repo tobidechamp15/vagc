@@ -12,6 +12,9 @@ const ALLOWED_FIELDS = new Set([
   "phoneNumber",
   "address",
   "maritalStatus",
+  // Profile photo (avatarUrl) — a Cloudinary secure_url returned by the
+  // DEV-17 direct-upload flow. Kept on the User model (IUser.avatarUrl).
+  "avatarUrl",
 ]);
 
 // PUT /api/auth/me/profile — update own profile fields

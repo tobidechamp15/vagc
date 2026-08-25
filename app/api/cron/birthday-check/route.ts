@@ -3,6 +3,8 @@ import { connectDB } from "@/lib/mongodb";
 import Member from "@/models/Member";
 import BirthdayEmailLog from "@/models/BirthdayEmailLog";
 import { sendBirthdayEmail } from "@/lib/email";
+import { daysUntilNextBirthday } from "@/lib/birthdaySort";
+import { logger } from "@/lib/logger";
 
 // Maximum number of automatic send attempts per member per year. Without a cap
 // an hourly cron would hammer permanently-bad addresses (e.g. a typo'd email)
@@ -16,42 +18,89 @@ const MAX_RETRIES = 5;
 // simultaneously. The lock auto-expires after 55 minutes (hourly cron
 // minus 5 min safety margin) so a crashed run never blocks the next tick.
 const LOCK_TTL_MS = 55 * 60 * 1000; // 55 minutes
+// nextBirthdayOrdinal decays at midnight, so it only needs refreshing about
+// once a day. A 23-hour lock on the hourly cron means one refresh per day
+// (with a safety margin so a crashed run never blocks the next tick).
+const ORDINAL_LOCK_TTL_MS = 23 * 60 * 60 * 1000; // 23 hours
+const ORDINAL_CHUNK = 500; // bulkWrite batch size (free-tier Atlas friendly)
 
-async function acquireCronLock(): Promise<boolean> {
+/**
+ * Distributed lock on the cron_locks collection. Used to deduplicate work
+ * across self-hosted / multi-instance deployments (Vercel Cron delivers a
+ * single request per tick, so this is a no-op there).
+ *
+ * A lock that hasn't expired means another instance already did this work, so
+ * this run skips it. Expired locks (crashed runs) are taken over and renewed.
+ */
+async function acquireLock(name: string, ttlMs: number): Promise<boolean> {
   try {
     const db = (await connectDB()).connection.db!;
     const now = new Date();
-    const result = await db.collection("cron_locks").findOneAndUpdate(
-      { name: "birthday-check" },
-      {
-        $set: { name: "birthday-check", acquiredAt: now },
-        $setOnInsert: { expiresAt: new Date(now.getTime() + LOCK_TTL_MS) },
-      },
-      { upsert: true, returnDocument: "after" },
-    );
-    // If a lock already exists and hasn't expired, this run is a duplicate.
-    if (!result) return false;
-    const expiresAt =
-      result.expiresAt instanceof Date
-        ? result.expiresAt
-        : new Date(result.expiresAt);
-    if (expiresAt > now) return false;
-    // Lock expired — update it and proceed.
-    await db.collection("cron_locks").updateOne(
-      { name: "birthday-check" },
+
+    // Atomically upsert the lock and ask the driver to report whether THIS
+    // call inserted it. returnDocument: "before" keeps `value` as the
+    // PRE-update document, so on the update path we can still read the
+    // previous expiresAt even though $set already wrote the new one.
+    //
+    // This fixes a first-ever-acquisition bug: the old code inferred
+    // "already locked" from `expiresAt > now` on the returned document, but a
+    // fresh insert (upsert) also has a future expiresAt, so the very first
+    // call misread its own insert as a held lock and returned false.
+    const raw = await db.collection("cron_locks").findOneAndUpdate(
+      { name },
       {
         $set: {
+          name,
           acquiredAt: now,
-          expiresAt: new Date(now.getTime() + LOCK_TTL_MS),
+          expiresAt: new Date(now.getTime() + ttlMs),
         },
       },
+      { upsert: true, returnDocument: "before", includeResultMetadata: true },
     );
-    return true;
+
+    // This call created the lock (nothing existed before) — we own it.
+    if (!raw?.lastErrorObject?.updatedExisting) return true;
+
+    // An existing lock. `value` is the PRE-update document: if its expiresAt
+    // was already in the future, another instance still holds the lock (and
+    // this run must skip); if it was in the past, this call just renewed it.
+    const prevExpires = raw.value?.expiresAt;
+    const expiresAt =
+      prevExpires instanceof Date ? prevExpires : new Date(prevExpires);
+    return expiresAt <= now;
   } catch {
     // If the locks collection doesn't exist yet or there's a transient error,
     // allow the cron to proceed — better to risk a duplicate than skip entirely.
     return true;
   }
+}
+
+const acquireCronLock = () => acquireLock("birthday-check", LOCK_TTL_MS);
+
+/**
+ * Recomputes nextBirthdayOrdinal for EVERY member. Because the value means
+ * "days until the next birthday from today", it decays at midnight — without
+ * this refresh the indexed directory sort would go stale within a day and
+ * reorder pages. Runs about once a day (guarded by a 23-hour lock).
+ */
+async function refreshBirthdayOrdinals(): Promise<number> {
+  const members = await Member.find({}).select("_id dateOfBirth").lean();
+  let count = 0;
+  for (let i = 0; i < members.length; i += ORDINAL_CHUNK) {
+    const slice = members.slice(i, i + ORDINAL_CHUNK);
+    await Member.bulkWrite(
+      slice.map((m: any) => ({
+        updateOne: {
+          filter: { _id: m._id },
+          update: {
+            $set: { nextBirthdayOrdinal: daysUntilNextBirthday(m.dateOfBirth) },
+          },
+        },
+      })),
+    );
+    count += slice.length;
+  }
+  return count;
 }
 
 // GET /api/cron/birthday-check
@@ -89,6 +138,27 @@ export async function GET(req: NextRequest) {
         success: true,
         message: "Skipped — another instance is already processing this tick.",
       });
+    }
+
+    // ── Daily ordinal refresh (~once a day, guarded by a 23-hour lock) ──
+    // nextBirthdayOrdinal decays at midnight; refreshing it here keeps the
+    // member directory's indexed birthday sort from going stale. Runs early so
+    // it happens even if the email-send loop below errors out, and is wrapped
+    // in its own try/catch so a refresh failure can NEVER abort the birthday
+    // email path (previously any error here would 500 the whole tick).
+    const ordinalLocked = await acquireLock(
+      "birthday-ordinal-refresh",
+      ORDINAL_LOCK_TTL_MS,
+    );
+    let ordinalRefreshed = 0;
+    if (ordinalLocked) {
+      try {
+        ordinalRefreshed = await refreshBirthdayOrdinals();
+      } catch (err: any) {
+        logger.error("Birthday ordinal refresh failed", {
+          error: err.message,
+        });
+      }
     }
 
     const now = new Date();
@@ -180,6 +250,7 @@ export async function GET(req: NextRequest) {
       success: true,
       checked: members.length,
       results,
+      ordinalRefreshed,
     });
   } catch (err: any) {
     return NextResponse.json(

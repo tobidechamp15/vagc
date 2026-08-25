@@ -3,10 +3,22 @@ import bcrypt from "bcryptjs";
 import { connectDB } from "@/lib/mongodb";
 import User from "@/models/User";
 import { isSuperAdminEmail } from "@/lib/auth";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rateLimit";
 
 // POST /api/auth/reset-password  { email, code, newPassword }
 export async function POST(req: NextRequest) {
   try {
+    // DEV-30: public write — limit reset-code brute force per IP.
+    const rl = await checkRateLimit(req, {
+      key: "auth.reset-password",
+      ...RATE_LIMITS.resetPassword,
+    });
+    if (!rl.ok) return rateLimitResponse(rl.retryAfterSeconds);
+
     await connectDB();
     const { email, code, newPassword } = await req.json();
 

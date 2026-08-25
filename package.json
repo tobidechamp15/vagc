@@ -5,23 +5,28 @@
   "scripts": {
     "dev": "node scripts/predev.js && next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "backfill:birthday-ordinal": "node scripts/backfill-next-birthday-ordinal.js",
+    "create:indexes": "node scripts/create-indexes.js",
+    "make:test-token": "node scripts/make-test-token.js",
+    "test:endpoints": "node ../artifacts/backend-endpoint-tests.mjs"
   },
   "dependencies": {
-    "next": "14.2.5",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "mongoose": "^8.5.0",
-    "nodemailer": "^6.9.14",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2"
+    "cloudinary": "^2.10.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.5.0",
+    "next": "14.2.5",
+    "nodemailer": "^6.9.14",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "typescript": "^5.5.4",
-    "@types/node": "^20.14.11",
-    "@types/react": "^18.3.3",
-    "@types/nodemailer": "^6.4.15",
     "@types/bcryptjs": "^2.4.6",
-    "@types/jsonwebtoken": "^9.0.6"
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.14.11",
+    "@types/nodemailer": "^6.4.15",
+    "@types/react": "^18.3.3",
+    "typescript": "^5.5.4"
   }
 }

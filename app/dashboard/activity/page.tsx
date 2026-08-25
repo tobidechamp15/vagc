@@ -13,6 +13,21 @@ const ACTION_LABELS: Record<ActivityAction, string> = {
   NOTIFICATION_RESEND: "Notification resent",
   ACCOUNT_APPROVE: "Account approved",
   ACCOUNT_REJECT: "Account rejected",
+  POST_CREATE: "Post created",
+  POST_UPDATE: "Post edited",
+  POST_DELETE: "Post deleted",
+  POST_RESTORE: "Post restored",
+  EVENT_CREATE: "Event created",
+  EVENT_UPDATE: "Event edited",
+  EVENT_DELETE: "Event deleted",
+  EVENT_RESTORE: "Event restored",
+  PRAYER_HIDE: "Prayer request hidden",
+  PRAYER_UNHIDE: "Prayer request unhidden",
+  PRAYER_DELETE: "Prayer request deleted",
+  PRAYER_BLOCK_DEVICE: "Device blocked from prayer wall",
+  PRAYER_UNBLOCK_DEVICE: "Device unblocked from prayer wall",
+  PRAYER_CLEAR_REPORTS: "Prayer request reports cleared",
+  SUPPORT_TICKET_UPDATE: "Support ticket updated",
 };
 
 const ACTIONS: ActivityAction[] = [
@@ -23,6 +38,21 @@ const ACTIONS: ActivityAction[] = [
   "NOTIFICATION_RESEND",
   "ACCOUNT_APPROVE",
   "ACCOUNT_REJECT",
+  "POST_CREATE",
+  "POST_UPDATE",
+  "POST_DELETE",
+  "POST_RESTORE",
+  "EVENT_CREATE",
+  "EVENT_UPDATE",
+  "EVENT_DELETE",
+  "EVENT_RESTORE",
+  "PRAYER_HIDE",
+  "PRAYER_UNHIDE",
+  "PRAYER_DELETE",
+  "PRAYER_BLOCK_DEVICE",
+  "PRAYER_UNBLOCK_DEVICE",
+  "PRAYER_CLEAR_REPORTS",
+  "SUPPORT_TICKET_UPDATE",
 ];
 
 function formatDate(iso: string): string {
@@ -70,6 +100,7 @@ export default async function ActivityPage({
     { label: "Members added", value: stats.byAction.MEMBER_CREATE ?? 0 },
     { label: "Members edited", value: stats.byAction.MEMBER_UPDATE ?? 0 },
     { label: "Members deleted", value: stats.byAction.MEMBER_DELETE ?? 0 },
+    { label: "Posts created", value: stats.byAction.POST_CREATE ?? 0 },
     { label: "Notif. resent", value: stats.byAction.NOTIFICATION_RESEND ?? 0 },
   ];
 

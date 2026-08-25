@@ -3,7 +3,6 @@ import { connectDB } from "@/lib/mongodb";
 import Member from "@/models/Member";
 import { requireApprovedUser, authFailureResponse } from "@/lib/auth";
 import { logActivity, getRequestMeta } from "@/lib/activity";
-import { sortByUpcomingBirthday } from "@/lib/birthdaySort";
 
 // GET /api/members                       -> list members (paginated)
 // GET /api/members?q=john                -> search members by name/email/phone
@@ -39,16 +38,20 @@ export async function GET(req: NextRequest) {
         }
       : {};
 
-    const [total, all] = await Promise.all([
-      Member.countDocuments(filter),
-      Member.find(filter).lean(),
-    ]);
-
-    // Order members by their closest upcoming birthday (today's first), then
-    // slice out only the requested page so the client gets small batches.
-    const sorted = sortByUpcomingBirthday(all);
+    // Real DB-level pagination: count + an indexed sort on nextBirthdayOrdinal
+    // (closest upcoming birthday first), then skip/limit so Mongo only fetches
+    // the requested page instead of the whole collection. `_id` tiebreaker
+    // keeps pages stable when several members share the same birthday.
     const start = (page - 1) * limit;
-    const data = sorted.slice(start, start + limit);
+    const [total, data] = await Promise.all([
+      Member.countDocuments(filter),
+      Member.find(filter)
+        .sort({ nextBirthdayOrdinal: 1, _id: 1 })
+        .skip(start)
+        .limit(limit)
+        .select("-nextBirthdayOrdinal") // internal sort key — keep the wire shape unchanged
+        .lean(),
+    ]);
 
     return NextResponse.json({
       success: true,
