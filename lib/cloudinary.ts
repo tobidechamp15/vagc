@@ -217,6 +217,98 @@ export async function deleteMedia(
   }) as Promise<{ result: string }>;
 }
 
+export interface RecentUpload {
+  publicId: string;
+  secureUrl?: string;
+  createdAt?: string;
+  format?: string;
+  bytes?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface RecentUploadsResult {
+  uploads: RecentUpload[];
+  total: number;
+  /** ISO timestamp of the Cloudinary API call. */
+  queriedAt: string;
+  /** How far back (minutes) uploads were looked at; undefined = no filter. */
+  minutes?: number;
+}
+
+/**
+ * Lists the most recent assets in the app upload folder from Cloudinary's
+ * Admin API (server-to-server, so it works for a client that never reports
+ * back — e.g. the published Play Store build).
+ *
+ * This is the diagnostic that lets you tell, after an upload fails, whether the
+ * file EVER reached Cloudinary:
+ *   - A signature was issued but NO asset with a matching timestamp appears
+ *     here → the direct client→Cloudinary upload itself failed (the backend
+ *     never sees that leg otherwise).
+ *   - An asset DOES appear but the client never created a post → the failure is
+ *     downstream of Cloudinary (client never got/reported the URL).
+ *
+ * Only assets under CLOUDINARY_UPLOAD_FOLDER and created in the last
+ * `minutes` (default 60) are returned.
+ */
+export async function listRecentUploads(options?: {
+  minutes?: number;
+  maxResults?: number;
+  resourceType?: "image" | "video" | "raw" | "auto";
+}): Promise<RecentUploadsResult> {
+  if (!isCloudinaryConfigured()) {
+    throw new Error(
+      "Cloudinary is not configured (missing CLOUDINARY_* env vars)",
+    );
+  }
+  const minutes = options?.minutes ?? 60;
+  const resourceType = options?.resourceType ?? "image";
+  const maxResults = Math.min(options?.maxResults ?? 100, 500);
+
+  const since = new Date(Date.now() - minutes * 60 * 1000);
+
+  // Cloudinary's Admin API resources endpoint does not support arbitrary
+  // date-range filtering on created_at, so we page through recent uploads
+  // (newest first) and keep only those created within the window.
+  const kept: RecentUpload[] = [];
+  let cursor: string | undefined;
+  let fetched = 0;
+  do {
+    const res: any = await cloudinary.api.resources({
+      type: "upload",
+      resource_type: resourceType,
+      prefix: CLOUDINARY_UPLOAD_FOLDER,
+      max_results: Math.min(500, maxResults),
+      next_cursor: cursor,
+      direction: "desc",
+    });
+    fetched += (res?.resources || []).length;
+    for (const r of res?.resources || []) {
+      const created = r?.created_at ? new Date(r.created_at) : null;
+      if (!created || created >= since) {
+        kept.push({
+          publicId: r.public_id,
+          secureUrl: r.secure_url,
+          createdAt: r.created_at,
+          format: r.format,
+          bytes: r.bytes,
+          width: r.width,
+          height: r.height,
+        });
+      }
+    }
+    cursor = res?.next_cursor;
+  } while (cursor && kept.length < maxResults && fetched < 2000);
+
+  return {
+    uploads: kept.slice(0, maxResults),
+    total: kept.slice(0, maxResults).length,
+    queriedAt: new Date().toISOString(),
+    minutes,
+  };
+}
+
 /**
  * True when the value is an absolute http(s) URL (e.g. a Cloudinary
  * secure_url). Used to validate imageUrl/mediaUrl before persisting them.

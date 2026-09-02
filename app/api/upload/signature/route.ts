@@ -33,6 +33,13 @@ const WRITER_ROLES = ["admin", "staff"];
  *   https://api.cloudinary.com/v1_1/<cloudName>/<resourceType>/upload
  * When `chunked` is true the client must use a chunked upload with the returned
  * chunkSize (Cloudinary reassembles the parts).
+ *
+ * DIAGNOSTICS: the actual file upload happens client→Cloudinary DIRECTLY and is
+ * invisible to this server. To find where a failing upload died, correlate the
+ * `upload_signature.issued` timestamp against GET /api/upload/diagnostics
+ * (lists assets that actually reached Cloudinary) and the later
+ * `post.create.requested/succeeded` lines (proves the client got a URL and
+ * reported back). See backend/app/api/upload/diagnostics/route.ts.
  */
 export async function POST(req: NextRequest) {
   const auth = await requireApprovedUser(req);
@@ -85,6 +92,15 @@ export async function POST(req: NextRequest) {
     const chunkSize =
       body.chunkSize != null ? Number(body.chunkSize) : undefined;
 
+    // Client-generated correlation id for ONE upload attempt (DEV-93 trace).
+    // The app sends it with every checkpoint so server + forwarded client logs
+    // for the same attempt can be matched up.
+    const uploadId =
+      typeof body.uploadId === "string"
+        ? body.uploadId.slice(0, 64)
+        : undefined;
+    const uploadIdMeta = uploadId ? { uploadId } : {};
+
     // DEV-93 trace: the FIRST backend touchpoint of a media upload. If this
     // line never appears, the failure is client-side before the app even
     // requested a signature (auth token expired, offline, or the composer's
@@ -94,6 +110,7 @@ export async function POST(req: NextRequest) {
       role: actor.role,
       resourceType,
       chunkSize,
+      ...uploadIdMeta,
     });
 
     const data = getUploadSignature({ resourceType, chunkSize });
@@ -103,6 +120,7 @@ export async function POST(req: NextRequest) {
       resourceType,
       folder: data.folder,
       chunked: data.chunked ?? false,
+      ...uploadIdMeta,
     });
 
     return NextResponse.json({ success: true, data });
