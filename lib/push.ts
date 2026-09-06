@@ -193,6 +193,11 @@ export async function sendPushNotification(
     deviceQuery.userId = { $in: opts.userIds };
   }
   const devices = await Device.find(deviceQuery).lean();
+  logger.info("push.send.recipients", {
+    category: categoryKey ?? null,
+    userIdsAllowList: opts.userIds?.length ?? 0,
+    devicesWithTokens: devices.length,
+  });
 
   // Batch-load the account prefs of every linked device once (account-level is
   // the master switch for staff devices).
@@ -300,7 +305,30 @@ export async function sendPushNotification(
     }
   }
 
+  logger.info("push.send.prepared", {
+    category: categoryKey ?? null,
+    messagesToSend: messages.length,
+    distinctDevices: devices.length,
+  });
+
   const result = await sendPushMessages(messages);
+
+  // DEV-93 diagnostic: log the actual Expo outcome so a "push not received"
+  // report can be traced — were non-admin devices simply absent (no tokens), or
+  // did Expo reject/flag their tokens?
+  logger.info("push.send.result", {
+    category: categoryKey ?? null,
+    attempted: messages.length,
+    sent: result.sent,
+    failed: result.failed,
+    invalidTokens: result.invalidTokens.length,
+    // A few representative errors (token prefix + message) — never the full
+    // token, to keep logs tidy.
+    errors: result.errors.slice(0, 5).map((e) => ({
+      tokenPrefix: e.token.slice(0, 20),
+      message: e.message.slice(0, 200),
+    })),
+  });
 
   // Remove dead tokens from their owners (best-effort — never fail the send
   // because a cleanup write failed).
